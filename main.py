@@ -3,17 +3,19 @@ import json
 import os
 from words import words
 
-RELEASE = "0.1"
+RELEASE = "0.2"
 
 PROGRESS_FILE = "progress.json"
-# Levels go from worst to best. A correct answer moves a word one level up,
-# an incorrect answer moves it one level down (floor/ceiling at the ends).
 LEVELS = ["struggling", "shaky", "known"]
+
+LEVEL_WEIGHTS = {
+    "struggling": 5,
+    "shaky": 3,
+    "known": 1
+}
 
 
 def migrate_entry(entry):
-    # Add a 'level' field to older progress entries that don't have one yet,
-    # inferring it from their correct/incorrect counts.
     if "level" in entry:
         return entry
 
@@ -48,8 +50,16 @@ def save_progress(progress):
         json.dump(progress, f, indent=2)
 
 
-def get_word_tuple():
-    return random.choice(list(words.items()))
+def get_weighted_word_tuple(progress):
+    word_list = list(words.keys())
+    weights = []
+    for w in word_list:
+        entry = progress.get(w, {})
+        lvl = entry.get("level", "struggling")
+        weights.append(LEVEL_WEIGHTS.get(lvl, 5))
+        
+    selected_word = random.choices(word_list, weights=weights, k=1)[0]
+    return selected_word, words[selected_word]
 
 
 def get_choices(correct_word, correct_def):
@@ -72,32 +82,53 @@ def level_down(entry):
 
 
 def quiz_word(word, correct_def, progress, session_wrong=None):
-    # Ask about a single word. Returns False if the user quit, True otherwise.
     choices = get_choices(word, correct_def)
     print(f"\nWord: {word}")
+    
+    current_level = progress.get(word, {}).get("level", "struggling")
+    print(f"Status: [{current_level.upper()}]")
+    
     for i, choice in enumerate(choices, 1):
         print(f"  {i}. {choice}")
 
-    answer = input("Your answer (1-4, or 'q' to quit): ").strip()
-    if answer.lower() == "q":
-        return False
+    selected = None
+    skipped = False
 
-    try:
-        idx = int(answer) - 1
-        selected = choices[idx]
-    except (ValueError, IndexError):
-        print("Invalid input — counting that as incorrect.")
-        selected = None
+    # Input loop: allows retry on typos, handles empty input as skipped, 'q' to quit
+    while True:
+        answer = input("Your answer (1-4, Enter to skip, or 'q' to quit): ").strip()
+        
+        if answer.lower() == "q":
+            return False
+            
+        if answer == "":
+            print("Skipped.")
+            skipped = True
+            break
+
+        try:
+            idx = int(answer) - 1
+            if 0 <= idx < len(choices):
+                selected = choices[idx]
+                break
+            else:
+                print("Please select a valid option number (1-4).")
+        except ValueError:
+            print("Invalid input. Please enter a number from 1-4, press Enter to skip, or 'q' to quit.")
 
     entry = progress.setdefault(word, {"correct": 0, "incorrect": 0, "level": "struggling"})
     entry.setdefault("level", "struggling")
 
-    if selected == correct_def:
+    if not skipped and selected == correct_def:
         print("Correct!")
         entry["correct"] += 1
         level_up(entry)
     else:
-        print(f"Incorrect. The correct definition was: {correct_def}")
+        if not skipped:
+            print(f"Incorrect. The correct definition was: {correct_def}")
+        else:
+            print(f"The correct definition was: {correct_def}")
+            
         entry["incorrect"] += 1
         level_down(entry)
         if session_wrong is not None:
@@ -108,19 +139,17 @@ def quiz_word(word, correct_def, progress, session_wrong=None):
 
 
 def ask_question(progress, session_wrong):
-    word, correct_def = get_word_tuple()
+    word, correct_def = get_weighted_word_tuple(progress)
     return quiz_word(word, correct_def, progress, session_wrong)
 
 
 def review_round(progress, session_wrong):
-    # On quit, actively re-quiz on this session's misses plus anything struggling or shaky in progress.json.
-    # Add a couple of known words mixed in for good measure.
     struggling = [w for w, e in progress.items() if e.get("level") == "struggling"]
     shaky = [w for w, e in progress.items() if e.get("level") == "shaky"]
     known = [w for w, e in progress.items() if e.get("level") == "known"]
 
     pool = set(session_wrong) | set(struggling) | set(shaky)
-    pool = [w for w in pool if w in words]  # guard against stale words no longer in the list
+    pool = [w for w in pool if w in words]
 
     if known:
         extra = random.sample(known, min(2, len(known)))
@@ -132,8 +161,8 @@ def review_round(progress, session_wrong):
         return
 
     random.shuffle(pool)
-    print("\n===Review Round===")
-    print("Revisiting words you've missed or are still shaky on, plus a couple you know well.\n")
+    print("\n=== Review Round ===")
+    print("Revisiting words you missed or need practice on:\n")
 
     for word in pool:
         correct_def = words[word]
@@ -144,7 +173,7 @@ def review_round(progress, session_wrong):
 
 
 def print_summary(progress):
-    print("\n===Summary===")
+    print("\n=== Summary ===")
     if not progress:
         print("No words attempted yet.")
         return
@@ -153,16 +182,16 @@ def print_summary(progress):
     shaky = sorted(w for w, s in progress.items() if s.get("level") == "shaky")
     struggling = sorted(w for w, s in progress.items() if s.get("level") == "struggling")
 
-    print(f"Known well:      {', '.join(known) if known else 'none yet'}")
-    print(f"Still shaky on:  {', '.join(shaky) if shaky else 'none'}")
-    print(f"Needs review:    {', '.join(struggling) if struggling else 'none'}")
+    print(f"Known well ({len(known)}):      {', '.join(known) if known else 'none yet'}")
+    print(f"Still shaky on ({len(shaky)}):  {', '.join(shaky) if shaky else 'none'}")
+    print(f"Needs review ({len(struggling)}):   {', '.join(struggling) if struggling else 'none'}")
 
 
 if __name__ == "__main__":
     progress = load_progress()
     session_wrong = set()
 
-    print("===WordLadder CLI v" + RELEASE + "===")
+    print("=== WordLadder CLI v" + RELEASE + " ===")
     print("Input 'q' at any time to quit.")
 
     while True:
