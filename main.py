@@ -80,7 +80,6 @@ def level_down(entry):
     idx = LEVELS.index(entry.get("level", "struggling"))
     entry["level"] = LEVELS[max(idx - 1, 0)]
 
-
 def quiz_word(word, correct_def, progress, session_wrong=None):
     choices = get_choices(word, correct_def)
     print(f"\nWord: {word}")
@@ -94,16 +93,22 @@ def quiz_word(word, correct_def, progress, session_wrong=None):
     selected = None
     skipped = False
 
+    vim_map = {"h": 0, "j": 1, "k": 2, "l": 3}
+
     # Input loop: allows retry on typos, handles empty input as skipped, 'q' to quit
     while True:
-        answer = input("Your answer (1-4, Enter to skip, or 'q' to quit): ").strip()
+        answer = input("Your answer (1-4, Enter to skip, or 'q' to quit): ").strip().lower()
         
-        if answer.lower() == "q":
+        if answer == "q":
             return False
             
         if answer == "":
             print("Skipped.")
             skipped = True
+            break
+
+        if answer in vim_map:
+            selected = choices[vim_map[answer]]
             break
 
         try:
@@ -136,7 +141,6 @@ def quiz_word(word, correct_def, progress, session_wrong=None):
 
     save_progress(progress)
     return True
-
 
 def ask_question(progress, session_wrong):
     word, correct_def = get_weighted_word_tuple(progress)
