@@ -1,4 +1,4 @@
-# WordLadder
+# word-ladder
 a cli vocabulary quiz that tracks how well you know each word over time and actively re-tests you on your weak spots before you walk away.
 
 ## overview
